@@ -81,7 +81,7 @@ if (args.Contains("--migrate") || Environment.GetEnvironmentVariable("APPLY_MIGR
 {
     using var scope = app.Services.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<AppLogica.Desk.Infrastructure.Persistence.DeskDbContext>();
-    db.Database.EnsureCreated();
+    db.Database.Migrate();
     if (args.Contains("--migrate"))
     {
         // Exit after migration when running as a job
