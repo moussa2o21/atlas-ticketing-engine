@@ -1,34 +1,105 @@
+using System.Text.Json.Serialization;
+using AppLogica.Desk.API.Hubs;
+using AppLogica.Desk.API.Middleware;
+using AppLogica.Desk.Application;
+using AppLogica.Desk.Infrastructure;
+using Microsoft.IdentityModel.Tokens;
+
+// ──────────────────────────────────────────────────────────────────────────────
+// ATLAS Desk — Ticketing Engine API
+// ──────────────────────────────────────────────────────────────────────────────
+
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
+// Default port for container deployments (overridable via ASPNETCORE_URLS)
+builder.WebHost.ConfigureKestrel(options =>
+{
+    if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("ASPNETCORE_URLS")))
+    {
+        options.ListenAnyIP(8080);
+    }
+});
+
+// ─── Application & Infrastructure ────────────────────────────────────────────
+builder.Services.AddApplication();
+builder.Services.AddInfrastructure(builder.Configuration);
+
+// ─── Authentication — JwtBearer pointed at ATLAS Identity ────────────────────
+builder.Services.AddAuthentication("Bearer")
+    .AddJwtBearer("Bearer", options =>
+    {
+        options.Authority = builder.Configuration["Auth:Authority"];
+        options.Audience = builder.Configuration["Auth:Audience"];
+        options.RequireHttpsMetadata = false; // internal cluster communication
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidateAudience = false, // audience validation optional for now
+            ValidateLifetime = true,
+        };
+    });
+
+builder.Services.AddAuthorization();
+
+// ─── Controllers + JSON ──────────────────────────────────────────────────────
+builder.Services.AddControllers()
+    .AddJsonOptions(options =>
+    {
+        options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
+    });
+
+// ─── Swagger / OpenAPI ───────────────────────────────────────────────────────
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen(options =>
+{
+    options.SwaggerDoc("v1", new Microsoft.OpenApi.OpenApiInfo
+    {
+        Title = "ATLAS Desk API",
+        Version = "v1",
+        Description = "ATLAS Ticketing Engine — ITIL-aligned incident management API."
+    });
+});
+
+// ─── SignalR ─────────────────────────────────────────────────────────────────
+builder.Services.AddSignalR();
+
+// ─── Health Checks ───────────────────────────────────────────────────────────
+builder.Services.AddHealthChecks();
+
+// ─── MassTransit (RabbitMQ) ──────────────────────────────────────────────────
+// Configured in Infrastructure DependencyInjection if EVENTBUS__CONNECTIONSTRING is set.
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Build the application
+// ──────────────────────────────────────────────────────────────────────────────
 
 var app = builder.Build();
 
-// Configure the HTTP request pipeline.
+// ─── Middleware Pipeline ─────────────────────────────────────────────────────
+// TenantResolutionMiddleware must run before auth so that tenant context
+// is available to downstream handlers. It only applies to /api/ routes.
+app.UseMiddleware<TenantResolutionMiddleware>();
 
-app.UseHttpsRedirection();
+app.UseAuthentication();
+app.UseAuthorization();
 
-var summaries = new[]
+// ─── Swagger (Development only) ──────────────────────────────────────────────
+if (app.Environment.IsDevelopment())
 {
-    "Freezing", "Bracing", "Chilly", "Cool", "Mild", "Warm", "Balmy", "Hot", "Sweltering", "Scorching"
-};
+    app.UseSwagger();
+    app.UseSwaggerUI(options =>
+    {
+        options.SwaggerEndpoint("/swagger/v1/swagger.json", "ATLAS Desk API v1");
+    });
+}
 
-app.MapGet("/weatherforecast", () =>
-{
-    var forecast =  Enumerable.Range(1, 5).Select(index =>
-        new WeatherForecast
-        (
-            DateOnly.FromDateTime(DateTime.Now.AddDays(index)),
-            Random.Shared.Next(-20, 55),
-            summaries[Random.Shared.Next(summaries.Length)]
-        ))
-        .ToArray();
-    return forecast;
-});
+// ─── Endpoint Mapping ────────────────────────────────────────────────────────
+app.MapControllers();
+app.MapHub<DeskHub>("/hubs/desk");
 
 app.Run();
 
-record WeatherForecast(DateOnly Date, int TemperatureC, string? Summary)
-{
-    public int TemperatureF => 32 + (int)(TemperatureC / 0.5556);
-}
+// ──────────────────────────────────────────────────────────────────────────────
+// Partial class declaration for WebApplicationFactory in integration tests.
+// ──────────────────────────────────────────────────────────────────────────────
+public partial class Program { }

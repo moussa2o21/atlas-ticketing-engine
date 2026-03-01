@@ -9,3 +9,7 @@
 | 2026-03-01T04:10:00 | Phase 2 | Unit tests | tests/Unit/IncidentTests.cs | DONE | 7 tests passing (lifecycle, matrix, guards) |
 | 2026-03-01T04:25:00 | Phase 3 | EF Core Infrastructure | 10 files in Infrastructure/Persistence | DONE | DeskDbContext, TenantContext, Repositories, Configs |
 | 2026-03-01T04:25:00 | Phase 3 | DI Registration | DependencyInjection.cs | DONE | All services registered as scoped |
+| 2026-03-01T04:45:00 | Phase 4 | CQRS Commands | 12 command files (Create/Assign/Escalate/Resolve/Close) | DONE | All handlers with validation |
+| 2026-03-01T04:45:00 | Phase 4 | CQRS Queries | 6 query files (Get/List/Timeline) | DONE | DTOs, pagination |
+| 2026-03-01T04:45:00 | Phase 4 | SLA & Events | SlaEvaluationJob, Pause/Resume, EventHandlers | DONE | Idempotent SLA engine |
+| 2026-03-01T04:45:00 | Phase 4 | Pipeline | ValidationBehaviour, LoggingBehaviour, DI | DONE | MediatR pipeline configured |
