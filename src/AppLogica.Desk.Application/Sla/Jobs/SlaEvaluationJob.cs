@@ -25,7 +25,13 @@ public sealed class SlaEvaluationJob
     /// <summary>
     /// The warning threshold as a percentage of elapsed time (0.80 = 80%).
     /// </summary>
-    private const double WarningThreshold = 0.80;
+    public const double WarningThreshold = 0.80;
+
+    /// <summary>
+    /// Maximum number of timers processed per evaluation cycle to prevent
+    /// long-running jobs from blocking the Hangfire worker.
+    /// </summary>
+    public const int BatchSize = 500;
 
     public SlaEvaluationJob(
         ISlaRepository slaRepository,
@@ -61,8 +67,18 @@ public sealed class SlaEvaluationJob
         var now = DateTime.UtcNow;
         var warningCount = 0;
         var breachCount = 0;
+        var processedTimers = activeTimers.Count > BatchSize
+            ? activeTimers.Take(BatchSize).ToList()
+            : activeTimers;
 
-        foreach (var timer in activeTimers)
+        if (activeTimers.Count > BatchSize)
+        {
+            _logger.LogWarning(
+                "Tenant {TenantId} has {Total} active timers exceeding batch size of {Limit}. Processing capped batch.",
+                tenantId, activeTimers.Count, BatchSize);
+        }
+
+        foreach (var timer in processedTimers)
         {
             try
             {
@@ -82,7 +98,7 @@ public sealed class SlaEvaluationJob
 
         _logger.LogInformation(
             "SLA evaluation completed for tenant {TenantId}: {Total} timers evaluated, {Warnings} warnings, {Breaches} breaches",
-            tenantId, activeTimers.Count, warningCount, breachCount);
+            tenantId, processedTimers.Count, warningCount, breachCount);
     }
 
     private async Task EvaluateTimerAsync(

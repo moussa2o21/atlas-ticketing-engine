@@ -132,4 +132,19 @@ public sealed class SlaTimer : Entity
         Status = SlaTimerStatus.Met;
         UpdatedAt = DateTime.UtcNow;
     }
+
+    /// <summary>
+    /// Voids the timer when the SLA target is recalculated (e.g. after a priority change).
+    /// The voided timer is preserved for audit trail; a new timer replaces it.
+    /// </summary>
+    public void MarkVoided()
+    {
+        if (Status is SlaTimerStatus.Voided)
+        {
+            throw new InvalidOperationException("SLA timer is already voided.");
+        }
+
+        Status = SlaTimerStatus.Voided;
+        UpdatedAt = DateTime.UtcNow;
+    }
 }

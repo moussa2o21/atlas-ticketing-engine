@@ -1,5 +1,7 @@
 using AppLogica.Desk.Application.Common.Interfaces;
 using AppLogica.Desk.Application.Common.IntegrationEvents;
+using AppLogica.Desk.Application.Sla.EventHandlers;
+using AppLogica.Desk.Application.Sla.Services;
 using AppLogica.Desk.Domain.Repositories;
 using AppLogica.Desk.Infrastructure.EventBus;
 using AppLogica.Desk.Infrastructure.Persistence;
@@ -43,6 +45,8 @@ public static class DependencyInjection
 
         // Services
         services.AddScoped<IBusinessHoursCalculator, BusinessHoursCalculator>();
+        services.AddScoped<SlaTimerService>();
+        services.AddScoped<ISlaNotificationService, SignalRSlaNotificationService>();
 
         // ── MassTransit + RabbitMQ (ATLAS Event Bus) ────────────────────────
         var eventBusConnectionString = configuration["EventBus:ConnectionString"];
