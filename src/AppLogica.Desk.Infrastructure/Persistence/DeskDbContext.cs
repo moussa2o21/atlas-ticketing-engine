@@ -1,6 +1,7 @@
 using AppLogica.Desk.Application.Common.Interfaces;
 using AppLogica.Desk.Domain.Common;
 using AppLogica.Desk.Domain.Incidents;
+using AppLogica.Desk.Domain.ServiceCatalog;
 using AppLogica.Desk.Domain.Sla;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
@@ -31,6 +32,13 @@ public sealed class DeskDbContext : DbContext
     public DbSet<SlaTimer> SlaTimers => Set<SlaTimer>();
     public DbSet<BusinessHoursCalendar> BusinessHoursCalendars => Set<BusinessHoursCalendar>();
     public DbSet<PublicHoliday> PublicHolidays => Set<PublicHoliday>();
+
+    // ── Service Catalog ──
+    public DbSet<ServiceCatalogCategory> ServiceCatalogCategories => Set<ServiceCatalogCategory>();
+    public DbSet<ServiceCatalogItem> ServiceCatalogItems => Set<ServiceCatalogItem>();
+    public DbSet<ApprovalWorkflow> ApprovalWorkflows => Set<ApprovalWorkflow>();
+    public DbSet<ServiceRequest> ServiceRequests => Set<ServiceRequest>();
+    public DbSet<FulfillmentTask> FulfillmentTasks => Set<FulfillmentTask>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

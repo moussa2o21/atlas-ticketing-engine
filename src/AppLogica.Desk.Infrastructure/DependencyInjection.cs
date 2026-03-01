@@ -42,6 +42,8 @@ public static class DependencyInjection
         services.AddScoped<IIncidentRepository, IncidentRepository>();
         services.AddScoped<ISlaRepository, SlaRepository>();
         services.AddScoped<IBusinessHoursRepository, BusinessHoursRepository>();
+        services.AddScoped<IServiceCatalogRepository, ServiceCatalogRepository>();
+        services.AddScoped<IServiceRequestRepository, ServiceRequestRepository>();
 
         // Services
         services.AddScoped<IBusinessHoursCalculator, BusinessHoursCalculator>();
