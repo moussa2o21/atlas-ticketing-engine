@@ -29,6 +29,8 @@ public sealed class DeskDbContext : DbContext
     public DbSet<Incident> Incidents => Set<Incident>();
     public DbSet<SlaPolicy> SlaPolicies => Set<SlaPolicy>();
     public DbSet<SlaTimer> SlaTimers => Set<SlaTimer>();
+    public DbSet<BusinessHoursCalendar> BusinessHoursCalendars => Set<BusinessHoursCalendar>();
+    public DbSet<PublicHoliday> PublicHolidays => Set<PublicHoliday>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

@@ -4,6 +4,7 @@ using AppLogica.Desk.Domain.Repositories;
 using AppLogica.Desk.Infrastructure.EventBus;
 using AppLogica.Desk.Infrastructure.Persistence;
 using AppLogica.Desk.Infrastructure.Persistence.Repositories;
+using AppLogica.Desk.Infrastructure.Services;
 using MassTransit;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -38,6 +39,10 @@ public static class DependencyInjection
         // Repositories
         services.AddScoped<IIncidentRepository, IncidentRepository>();
         services.AddScoped<ISlaRepository, SlaRepository>();
+        services.AddScoped<IBusinessHoursRepository, BusinessHoursRepository>();
+
+        // Services
+        services.AddScoped<IBusinessHoursCalculator, BusinessHoursCalculator>();
 
         // ── MassTransit + RabbitMQ (ATLAS Event Bus) ────────────────────────
         var eventBusConnectionString = configuration["EventBus:ConnectionString"];
