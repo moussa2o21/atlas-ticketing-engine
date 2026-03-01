@@ -1,6 +1,7 @@
 using AppLogica.Desk.Application.Common.Interfaces;
 using AppLogica.Desk.Domain.Common;
 using AppLogica.Desk.Domain.Incidents;
+using AppLogica.Desk.Domain.Problems;
 using AppLogica.Desk.Domain.ServiceCatalog;
 using AppLogica.Desk.Domain.Sla;
 using MediatR;
@@ -39,6 +40,9 @@ public sealed class DeskDbContext : DbContext
     public DbSet<ApprovalWorkflow> ApprovalWorkflows => Set<ApprovalWorkflow>();
     public DbSet<ServiceRequest> ServiceRequests => Set<ServiceRequest>();
     public DbSet<FulfillmentTask> FulfillmentTasks => Set<FulfillmentTask>();
+
+    // ── Problem Management ──
+    public DbSet<Problem> Problems => Set<Problem>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

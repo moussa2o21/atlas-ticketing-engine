@@ -13,6 +13,10 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
+// Problem Management
+using AppLogica.Desk.Application.Problems;
+using AppLogica.Desk.Infrastructure.Services.AiTrendDetection;
+
 namespace AppLogica.Desk.Infrastructure;
 
 public static class DependencyInjection
@@ -44,8 +48,10 @@ public static class DependencyInjection
         services.AddScoped<IBusinessHoursRepository, BusinessHoursRepository>();
         services.AddScoped<IServiceCatalogRepository, ServiceCatalogRepository>();
         services.AddScoped<IServiceRequestRepository, ServiceRequestRepository>();
+        services.AddScoped<IProblemRepository, ProblemRepository>();
 
         // Services
+        services.AddScoped<IAiTrendDetectionService, StubAiTrendDetectionService>();
         services.AddScoped<IBusinessHoursCalculator, BusinessHoursCalculator>();
         services.AddScoped<SlaTimerService>();
         services.AddScoped<ISlaNotificationService, SignalRSlaNotificationService>();
