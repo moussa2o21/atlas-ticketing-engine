@@ -1,0 +1,70 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: desk-api
+  namespace: atlas-desk
+  labels:
+    app: desk-api
+    component: api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: desk-api
+  template:
+    metadata:
+      labels:
+        app: desk-api
+        component: api
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - desk-api
+                topologyKey: topology.kubernetes.io/zone
+      containers:
+        - name: desk-api
+          image: atlasidentitycr.azurecr.io/applogica-desk-api:v1.0.0
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - secretRef:
+                name: atlas-desk-db-secret
+            - secretRef:
+                name: atlas-desk-eventbus-secret
+            - secretRef:
+                name: atlas-desk-redis-secret
+            - secretRef:
+                name: atlas-desk-ai-secret
+          env:
+            - name: Auth__Authority
+              value: "http://keycloak.atlas-identity.svc.cluster.local:8080/realms/applogica"
+            - name: Auth__Audience
+              value: "atlas-desk"
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 30

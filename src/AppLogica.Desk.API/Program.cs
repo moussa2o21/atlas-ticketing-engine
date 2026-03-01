@@ -3,6 +3,7 @@ using AppLogica.Desk.API.Hubs;
 using AppLogica.Desk.API.Middleware;
 using AppLogica.Desk.Application;
 using AppLogica.Desk.Infrastructure;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -74,6 +75,19 @@ builder.Services.AddHealthChecks();
 // ──────────────────────────────────────────────────────────────────────────────
 
 var app = builder.Build();
+
+// ─── Auto-Migrate (when APPLY_MIGRATIONS=true or --migrate flag) ────────
+if (args.Contains("--migrate") || Environment.GetEnvironmentVariable("APPLY_MIGRATIONS") == "true")
+{
+    using var scope = app.Services.CreateScope();
+    var db = scope.ServiceProvider.GetRequiredService<AppLogica.Desk.Infrastructure.Persistence.DeskDbContext>();
+    db.Database.EnsureCreated();
+    if (args.Contains("--migrate"))
+    {
+        // Exit after migration when running as a job
+        return;
+    }
+}
 
 // ─── Middleware Pipeline ─────────────────────────────────────────────────────
 // TenantResolutionMiddleware must run before auth so that tenant context

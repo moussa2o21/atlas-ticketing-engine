@@ -1,0 +1,44 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: desk-worker
+  namespace: atlas-desk
+  labels:
+    app: desk-worker
+    component: worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: desk-worker
+  template:
+    metadata:
+      labels:
+        app: desk-worker
+        component: worker
+    spec:
+      containers:
+        - name: desk-worker
+          image: atlasidentitycr.azurecr.io/applogica-desk-api:v1.0.0
+          imagePullPolicy: Always
+          envFrom:
+            - secretRef:
+                name: atlas-desk-db-secret
+            - secretRef:
+                name: atlas-desk-eventbus-secret
+            - secretRef:
+                name: atlas-desk-redis-secret
+            - secretRef:
+                name: atlas-desk-ai-secret
+          env:
+            - name: HANGFIRE__ROLE
+              value: "worker"
+            - name: Auth__Authority
+              value: "http://keycloak.atlas-identity.svc.cluster.local:8080/realms/applogica"
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi

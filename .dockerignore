@@ -1,0 +1,17 @@
+**/bin/
+**/obj/
+**/out/
+**/.vs/
+**/.vscode/
+**/node_modules/
+**/TestResults/
+.git/
+.github/
+k8s/
+scripts/
+tests/
+*.md
+*.txt
+docker-compose.yml
+.dockerignore
+.gitignore
