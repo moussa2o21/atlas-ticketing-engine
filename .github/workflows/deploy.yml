@@ -1,0 +1,62 @@
+name: AppLogica Desk — Build, Test, Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  ACR_NAME: atlasidentitycr
+  IMAGE_NAME: applogica-desk-api
+  NAMESPACE: atlas-desk
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore
+        run: dotnet restore AppLogica.Desk.sln
+
+      - name: Build
+        run: dotnet build AppLogica.Desk.sln --no-restore -c Release
+
+      - name: Test
+        run: dotnet test AppLogica.Desk.sln --no-build -c Release --logger trx
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: ACR Login
+        run: az acr login --name ${{ env.ACR_NAME }}
+
+      - name: Build & Push Docker Image
+        run: |
+          docker build -t ${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ github.sha }} .
+          docker push ${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ github.sha }}
+
+      - name: Set AKS Context
+        uses: azure/aks-set-context@v4
+        with:
+          resource-group: rg-atlas-identity
+          cluster-name: aks-atlas-identity
+
+      - name: Deploy to AKS
+        run: |
+          kubectl set image deployment/desk-api desk-api=${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ github.sha }} -n ${{ env.NAMESPACE }}
+          kubectl rollout status deployment/desk-api -n ${{ env.NAMESPACE }} --timeout=180s

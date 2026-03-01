@@ -1,0 +1,40 @@
+## .NET
+bin/
+obj/
+*.user
+*.suo
+*.vs/
+.vs/
+*.DotSettings.user
+TestResults/
+*.trx
+
+## IDE
+.idea/
+*.swp
+*~
+
+## OS
+Thumbs.db
+.DS_Store
+
+## Logs
+logs/
+
+## Environment
+.env
+appsettings.Development.json
+appsettings.Local.json
+
+## Build
+publish/
+out/
+artifacts/
+
+## NuGet
+*.nupkg
+packages/
+
+## Coverage
+coverage/
+*.coveragexml

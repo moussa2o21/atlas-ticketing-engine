@@ -1,0 +1,2338 @@
+openapi: 3.0.3
+info:
+  title: AppLogica Desk — ITSM API
+  description: |
+    Enterprise IT Service Management (ITSM) API for AppLogica Desk.
+    Covers Incident, Service Request, Problem, Change, CMDB, Knowledge Base,
+    SLA governance, and Agent Operations.
+
+    **Authentication:** Bearer JWT via ATLAS Identity Service.
+    **Multi-tenancy:** TenantId resolved from JWT claims — never passed in request body.
+    **Versioning:** URI-based (/v1/).
+    **Standards:** ATLAS API Style Guide v1.0, ITIL v4 terminology.
+
+    **Base URL:**
+    - Production: https://desk-api.{tenant}.applogica.com/v1
+    - Staging: https://desk-api.{tenant}.staging.applogica.com/v1
+  version: 1.0.0
+  contact:
+    name: AppLogica CTO Office
+    email: architecture@applogica.com
+  license:
+    name: Proprietary — AppLogica Internal
+
+servers:
+  - url: https://desk-api.{tenant}.applogica.com/v1
+    description: Production
+    variables:
+      tenant:
+        default: demo
+        description: Tenant subdomain identifier
+  - url: https://desk-api.{tenant}.staging.applogica.com/v1
+    description: Staging
+
+security:
+  - BearerAuth: []
+
+tags:
+  - name: Incidents
+    description: ITIL Incident Management lifecycle operations
+  - name: Service Requests
+    description: IT Service Catalog and request fulfillment
+  - name: Problems
+    description: Problem Management and root cause analysis
+  - name: Changes
+    description: Change Enablement — RFC, CAB, Change Calendar
+  - name: SLA
+    description: SLA Policies, timers, and governance
+  - name: CMDB
+    description: Configuration Item registry and relationship management
+  - name: Knowledge Base
+    description: Knowledge article authoring and retrieval
+  - name: Agents
+    description: Agent profiles, queues, and team management
+  - name: AI
+    description: AI Copilot, classification, and RAG endpoints
+  - name: Reports
+    description: Operational reporting and analytics
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PATHS
+# ─────────────────────────────────────────────────────────────────────────────
+paths:
+
+  # ───────────────────────────────────────────
+  # INCIDENTS
+  # ───────────────────────────────────────────
+  /incidents:
+    get:
+      tags: [Incidents]
+      summary: List incidents
+      description: |
+        Returns a paginated list of incidents filtered by the specified criteria.
+        Results are scoped to the authenticated agent's tenant and access permissions.
+      operationId: listIncidents
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PageSizeParam'
+        - $ref: '#/components/parameters/SortByParam'
+        - name: status
+          in: query
+          schema:
+            type: array
+            items:
+              $ref: '#/components/schemas/IncidentStatus'
+        - name: priority
+          in: query
+          schema:
+            type: array
+            items:
+              $ref: '#/components/schemas/Priority'
+        - name: assigneeId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: queueId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: slaRisk
+          in: query
+          description: Filter by SLA risk level
+          schema:
+            type: string
+            enum: [at_risk, breached, on_track]
+        - name: createdFrom
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: createdTo
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: q
+          in: query
+          description: Full-text search query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Paginated incident list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PagedResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+    post:
+      tags: [Incidents]
+      summary: Create incident
+      description: Creates a new incident. AI classification is triggered asynchronously.
+      operationId: createIncident
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateIncidentRequest'
+      responses:
+        '201':
+          description: Incident created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IncidentDetail'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /incidents/{id}:
+    get:
+      tags: [Incidents]
+      summary: Get incident detail
+      operationId: getIncident
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      responses:
+        '200':
+          description: Incident detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IncidentDetail'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    patch:
+      tags: [Incidents]
+      summary: Update incident fields
+      description: Updates mutable fields. Status transitions must use dedicated transition endpoints.
+      operationId: updateIncident
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateIncidentRequest'
+      responses:
+        '200':
+          description: Updated incident
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IncidentDetail'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /incidents/{id}/assign:
+    post:
+      tags: [Incidents]
+      summary: Assign incident to agent or queue
+      operationId: assignIncident
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssignIncidentRequest'
+      responses:
+        '200':
+          description: Incident assigned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IncidentDetail'
+
+  /incidents/{id}/escalate:
+    post:
+      tags: [Incidents]
+      summary: Escalate incident
+      operationId: escalateIncident
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EscalateIncidentRequest'
+      responses:
+        '200':
+          description: Incident escalated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IncidentDetail'
+
+  /incidents/{id}/resolve:
+    post:
+      tags: [Incidents]
+      summary: Resolve incident
+      operationId: resolveIncident
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResolveIncidentRequest'
+      responses:
+        '200':
+          description: Incident resolved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IncidentDetail'
+
+  /incidents/{id}/close:
+    post:
+      tags: [Incidents]
+      summary: Close incident
+      operationId: closeIncident
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CloseIncidentRequest'
+      responses:
+        '200':
+          description: Incident closed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IncidentDetail'
+
+  /incidents/{id}/major-incident:
+    post:
+      tags: [Incidents]
+      summary: Declare major incident
+      description: Promotes incident to Major Incident (P0/P1 war room mode). Broadcasts notifications to stakeholders.
+      operationId: declareMajorIncident
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [impactStatement, commandBridgeUrl]
+              properties:
+                impactStatement:
+                  type: string
+                  description: Public-facing impact statement
+                commandBridgeUrl:
+                  type: string
+                  description: War room / bridge URL (Teams, Zoom, etc.)
+                stakeholderGroupIds:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+      responses:
+        '200':
+          description: Major incident declared
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IncidentDetail'
+
+  /incidents/{id}/timeline:
+    get:
+      tags: [Incidents]
+      summary: Get incident activity timeline
+      operationId: getIncidentTimeline
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      responses:
+        '200':
+          description: Chronological timeline of all incident activity
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TimelineEntry'
+
+  /incidents/bulk-assign:
+    post:
+      tags: [Incidents]
+      summary: Bulk assign incidents
+      operationId: bulkAssignIncidents
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [incidentIds, assigneeId]
+              properties:
+                incidentIds:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+                  maxItems: 100
+                assigneeId:
+                  type: string
+                  format: uuid
+      responses:
+        '200':
+          description: Bulk assignment result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BulkOperationResult'
+
+  # ───────────────────────────────────────────
+  # SERVICE REQUESTS
+  # ───────────────────────────────────────────
+  /service-catalog:
+    get:
+      tags: [Service Requests]
+      summary: List service catalog items
+      description: Returns all published service items available to the requester.
+      operationId: listServiceCatalog
+      parameters:
+        - name: categoryId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: q
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Service catalog items
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ServiceCatalogItem'
+
+  /service-requests:
+    post:
+      tags: [Service Requests]
+      summary: Submit a service request
+      operationId: createServiceRequest
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateServiceRequestRequest'
+      responses:
+        '201':
+          description: Service request submitted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceRequestDetail'
+
+    get:
+      tags: [Service Requests]
+      summary: List service requests
+      operationId: listServiceRequests
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PageSizeParam'
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [submitted, pending_approval, approved, in_fulfillment, fulfilled, rejected, cancelled]
+      responses:
+        '200':
+          description: Paginated service request list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PagedResponse'
+
+  /service-requests/{id}/approve:
+    post:
+      tags: [Service Requests]
+      summary: Approve a pending service request
+      operationId: approveServiceRequest
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                comment:
+                  type: string
+      responses:
+        '200':
+          description: Request approved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceRequestDetail'
+
+  /service-requests/{id}/reject:
+    post:
+      tags: [Service Requests]
+      summary: Reject a pending service request
+      operationId: rejectServiceRequest
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason:
+                  type: string
+      responses:
+        '200':
+          description: Request rejected
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceRequestDetail'
+
+  # ───────────────────────────────────────────
+  # PROBLEMS
+  # ───────────────────────────────────────────
+  /problems:
+    get:
+      tags: [Problems]
+      summary: List problems
+      operationId: listProblems
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PageSizeParam'
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [open, under_investigation, known_error, resolved, closed]
+      responses:
+        '200':
+          description: Paginated problem list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PagedResponse'
+
+    post:
+      tags: [Problems]
+      summary: Create problem record
+      operationId: createProblem
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateProblemRequest'
+      responses:
+        '201':
+          description: Problem record created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+
+  /problems/{id}/link-incidents:
+    post:
+      tags: [Problems]
+      summary: Link incidents to a problem
+      operationId: linkIncidentsToProblem
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [incidentIds]
+              properties:
+                incidentIds:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+      responses:
+        '200':
+          description: Incidents linked
+
+  /problems/{id}/known-error:
+    post:
+      tags: [Problems]
+      summary: Promote problem to Known Error
+      operationId: promoteToKnownError
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [workaround, rootCauseSummary]
+              properties:
+                workaround:
+                  type: string
+                rootCauseSummary:
+                  type: string
+                permanentFixEta:
+                  type: string
+                  format: date
+      responses:
+        '200':
+          description: Problem promoted to known error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+
+  # ───────────────────────────────────────────
+  # CHANGES
+  # ───────────────────────────────────────────
+  /changes:
+    get:
+      tags: [Changes]
+      summary: List change requests
+      operationId: listChanges
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PageSizeParam'
+        - name: changeType
+          in: query
+          schema:
+            $ref: '#/components/schemas/ChangeType'
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/ChangeStatus'
+        - name: scheduledFrom
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: scheduledTo
+          in: query
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: Paginated change request list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PagedResponse'
+
+    post:
+      tags: [Changes]
+      summary: Create change request (RFC)
+      operationId: createChangeRequest
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateChangeRequest'
+      responses:
+        '201':
+          description: Change request created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChangeRequestDetail'
+
+  /changes/{id}/submit-for-cab:
+    post:
+      tags: [Changes]
+      summary: Submit change for CAB review
+      operationId: submitChangeToCab
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                cabMeetingId:
+                  type: string
+                  format: uuid
+                  description: Target CAB meeting. If omitted, placed in next scheduled CAB.
+      responses:
+        '200':
+          description: Change submitted to CAB
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChangeRequestDetail'
+
+  /changes/{id}/cab-vote:
+    post:
+      tags: [Changes]
+      summary: Submit CAB vote for a change
+      operationId: submitCabVote
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [vote]
+              properties:
+                vote:
+                  type: string
+                  enum: [approve, reject, defer]
+                comment:
+                  type: string
+      responses:
+        '200':
+          description: Vote recorded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChangeRequestDetail'
+
+  /changes/{id}/implement:
+    post:
+      tags: [Changes]
+      summary: Mark change as implemented
+      operationId: implementChange
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [implementationNotes]
+              properties:
+                implementationNotes:
+                  type: string
+                actualStartTime:
+                  type: string
+                  format: date-time
+                actualEndTime:
+                  type: string
+                  format: date-time
+                outcome:
+                  type: string
+                  enum: [successful, successful_with_issues, failed, rolled_back]
+      responses:
+        '200':
+          description: Change marked as implemented
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChangeRequestDetail'
+
+  /changes/calendar:
+    get:
+      tags: [Changes]
+      summary: Get change calendar
+      description: Returns all scheduled changes for the specified date range. Used to render the Change Calendar UI.
+      operationId: getChangeCalendar
+      parameters:
+        - name: from
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: Change calendar entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ChangeCalendarEntry'
+
+  # ───────────────────────────────────────────
+  # SLA
+  # ───────────────────────────────────────────
+  /sla/policies:
+    get:
+      tags: [SLA]
+      summary: List SLA policies
+      operationId: listSlaPolicies
+      responses:
+        '200':
+          description: SLA policy list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SlaPolicy'
+
+    post:
+      tags: [SLA]
+      summary: Create SLA policy
+      operationId: createSlaPolicy
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSlaPolicyRequest'
+      responses:
+        '201':
+          description: SLA policy created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SlaPolicy'
+
+  /sla/timers/{ticketId}:
+    get:
+      tags: [SLA]
+      summary: Get active SLA timer for a ticket
+      operationId: getSlaTimer
+      parameters:
+        - name: ticketId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: ticketType
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [incident, service_request]
+      responses:
+        '200':
+          description: SLA timer status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SlaTimerStatus'
+
+  /sla/timers/{ticketId}/pause:
+    post:
+      tags: [SLA]
+      summary: Pause SLA timer
+      operationId: pauseSlaTimer
+      parameters:
+        - name: ticketId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason:
+                  type: string
+                  enum: [pending_customer, pending_third_party, maintenance_window, other]
+      responses:
+        '200':
+          description: SLA timer paused
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SlaTimerStatus'
+
+  /sla/timers/{ticketId}/resume:
+    post:
+      tags: [SLA]
+      summary: Resume paused SLA timer
+      operationId: resumeSlaTimer
+      parameters:
+        - name: ticketId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: SLA timer resumed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SlaTimerStatus'
+
+  # ───────────────────────────────────────────
+  # CMDB
+  # ───────────────────────────────────────────
+  /cmdb/cis:
+    get:
+      tags: [CMDB]
+      summary: List configuration items
+      operationId: listCIs
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PageSizeParam'
+        - name: ciType
+          in: query
+          schema:
+            type: string
+        - name: q
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Configuration item list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PagedResponse'
+
+    post:
+      tags: [CMDB]
+      summary: Create configuration item
+      operationId: createCI
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCIRequest'
+      responses:
+        '201':
+          description: CI created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfigurationItem'
+
+  /cmdb/cis/{id}/impact:
+    get:
+      tags: [CMDB]
+      summary: Get impact radius for a CI
+      description: Returns all CIs, incidents, and changes that would be affected by an outage of the specified CI.
+      operationId: getCIImpact
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+        - name: depth
+          in: query
+          description: Maximum relationship traversal depth (default 3, max 5)
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 5
+            default: 3
+      responses:
+        '200':
+          description: CI impact analysis result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CIImpactResult'
+
+  /cmdb/cis/{id}/relationships:
+    get:
+      tags: [CMDB]
+      summary: Get CI relationships
+      operationId: getCIRelationships
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      responses:
+        '200':
+          description: CI relationship graph (adjacency list)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CIRelationshipGraph'
+
+    post:
+      tags: [CMDB]
+      summary: Add CI relationship
+      operationId: addCIRelationship
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [targetCiId, relationshipType]
+              properties:
+                targetCiId:
+                  type: string
+                  format: uuid
+                relationshipType:
+                  type: string
+                  enum: [runs_on, depends_on, connected_to, hosted_by, managed_by]
+      responses:
+        '201':
+          description: Relationship created
+
+  # ───────────────────────────────────────────
+  # KNOWLEDGE BASE
+  # ───────────────────────────────────────────
+  /kb/articles:
+    get:
+      tags: [Knowledge Base]
+      summary: Search knowledge articles
+      operationId: searchKbArticles
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PageSizeParam'
+        - name: q
+          in: query
+          schema:
+            type: string
+        - name: categoryId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [draft, review, published, archived]
+      responses:
+        '200':
+          description: Knowledge article search results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PagedResponse'
+
+    post:
+      tags: [Knowledge Base]
+      summary: Create knowledge article
+      operationId: createKbArticle
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateKbArticleRequest'
+      responses:
+        '201':
+          description: Article created in Draft status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KbArticle'
+
+  /kb/articles/{id}/publish:
+    post:
+      tags: [Knowledge Base]
+      summary: Publish a reviewed article
+      operationId: publishKbArticle
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      responses:
+        '200':
+          description: Article published
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KbArticle'
+
+  # ───────────────────────────────────────────
+  # AI
+  # ───────────────────────────────────────────
+  /ai/copilot/chat:
+    post:
+      tags: [AI]
+      summary: ITSM Copilot chat
+      description: |
+        Proxies to ATLAS AI Gateway. Context enriched with tenant KB, incident data,
+        and CMDB relevant to the current session. Returns advisory responses only —
+        copilot does not take autonomous actions.
+      operationId: copilotChat
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [message]
+              properties:
+                message:
+                  type: string
+                contextType:
+                  type: string
+                  enum: [incident, service_request, change, problem, general]
+                contextId:
+                  type: string
+                  format: uuid
+                  description: ID of the current incident/request/change for context enrichment
+                conversationId:
+                  type: string
+                  format: uuid
+                  description: For multi-turn conversations
+      responses:
+        '200':
+          description: Copilot response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CopilotResponse'
+
+  /ai/classify-incident:
+    post:
+      tags: [AI]
+      summary: Classify incident via AI
+      description: |
+        Classifies an incident's category, subcategory, priority, and CI using AI.
+        Returns a classification result with confidence scores.
+        High-confidence results (≥70%) are auto-applied on incident creation.
+      operationId: classifyIncident
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title, description]
+              properties:
+                title:
+                  type: string
+                description:
+                  type: string
+                incidentId:
+                  type: string
+                  format: uuid
+                  description: If provided, auto-applies classification to this incident
+      responses:
+        '200':
+          description: Classification result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IncidentClassificationResult'
+
+  /ai/kb-suggestions:
+    post:
+      tags: [AI]
+      summary: Get KB article suggestions for an incident
+      description: RAG-based retrieval of relevant KB articles and similar resolved incidents.
+      operationId: getKbSuggestions
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title, description]
+              properties:
+                title:
+                  type: string
+                description:
+                  type: string
+                incidentId:
+                  type: string
+                  format: uuid
+                maxResults:
+                  type: integer
+                  default: 5
+                  maximum: 10
+      responses:
+        '200':
+          description: KB suggestions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KbSuggestionResult'
+
+  /ai/generate-kb-article:
+    post:
+      tags: [AI]
+      summary: Generate KB article draft from resolved incident
+      description: |
+        Generates a KB article draft using the incident timeline, resolution notes,
+        and workaround description. Article is created in Draft status.
+        Human review is mandatory before publishing.
+      operationId: generateKbArticle
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [incidentId]
+              properties:
+                incidentId:
+                  type: string
+                  format: uuid
+      responses:
+        '201':
+          description: KB article draft created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KbArticle'
+
+  # ───────────────────────────────────────────
+  # REPORTS
+  # ───────────────────────────────────────────
+  /reports/sla-compliance:
+    get:
+      tags: [Reports]
+      summary: SLA compliance report
+      operationId: getSlaComplianceReport
+      parameters:
+        - name: from
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+        - name: groupBy
+          in: query
+          schema:
+            type: string
+            enum: [priority, team, category, day, week, month]
+      responses:
+        '200':
+          description: SLA compliance data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SlaComplianceReport'
+
+  /reports/incident-volume:
+    get:
+      tags: [Reports]
+      summary: Incident volume report
+      operationId: getIncidentVolumeReport
+      parameters:
+        - name: from
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+        - name: groupBy
+          in: query
+          schema:
+            type: string
+            enum: [priority, category, team, day, week]
+      responses:
+        '200':
+          description: Incident volume data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IncidentVolumeReport'
+
+  /reports/export:
+    post:
+      tags: [Reports]
+      summary: Export report to PDF or Excel
+      operationId: exportReport
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reportType, format, from, to]
+              properties:
+                reportType:
+                  type: string
+                  enum: [sla_compliance, incident_volume, mttr, agent_performance]
+                format:
+                  type: string
+                  enum: [pdf, excel, csv]
+                from:
+                  type: string
+                  format: date
+                to:
+                  type: string
+                  format: date
+      responses:
+        '202':
+          description: Export job queued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  jobId:
+                    type: string
+                    format: uuid
+                  estimatedReadyAt:
+                    type: string
+                    format: date-time
+
+# ─────────────────────────────────────────────────────────────────────────────
+# COMPONENTS
+# ─────────────────────────────────────────────────────────────────────────────
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT issued by ATLAS Identity Service
+
+  parameters:
+    IdParam:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+    PageParam:
+      name: page
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+
+    PageSizeParam:
+      name: pageSize
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 200
+        default: 25
+
+    SortByParam:
+      name: sortBy
+      in: query
+      schema:
+        type: string
+
+  schemas:
+
+    # ── Enumerations ──────────────────────────────
+    IncidentStatus:
+      type: string
+      enum: [new, assigned, in_progress, pending, escalated, major, resolved, closed]
+
+    Priority:
+      type: string
+      enum: [critical, high, medium, low]
+
+    ChangeType:
+      type: string
+      enum: [standard, normal, emergency]
+
+    ChangeStatus:
+      type: string
+      enum: [draft, submitted, cab_review, approved, scheduled, implementing, implemented, closed, rejected, cancelled]
+
+    # ── Common ────────────────────────────────────
+    AuditFields:
+      type: object
+      properties:
+        createdAt:
+          type: string
+          format: date-time
+          readOnly: true
+        updatedAt:
+          type: string
+          format: date-time
+          readOnly: true
+        createdBy:
+          type: string
+          format: uuid
+          readOnly: true
+        updatedBy:
+          type: string
+          format: uuid
+          readOnly: true
+
+    PagedResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items: {}
+        pagination:
+          type: object
+          properties:
+            page:
+              type: integer
+            pageSize:
+              type: integer
+            totalItems:
+              type: integer
+            totalPages:
+              type: integer
+
+    BulkOperationResult:
+      type: object
+      properties:
+        processed:
+          type: integer
+        succeeded:
+          type: integer
+        failed:
+          type: integer
+        errors:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+                format: uuid
+              error:
+                type: string
+
+    TimelineEntry:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        occurredAt:
+          type: string
+          format: date-time
+        entryType:
+          type: string
+          enum: [status_change, assignment, comment, escalation, sla_event, ai_action, attachment, resolution]
+        actorId:
+          type: string
+          format: uuid
+        actorName:
+          type: string
+        summary:
+          type: string
+        isAiGenerated:
+          type: boolean
+        metadata:
+          type: object
+          additionalProperties: true
+
+    # ── Incident ──────────────────────────────────
+    IncidentSummary:
+      allOf:
+        - $ref: '#/components/schemas/AuditFields'
+        - type: object
+          properties:
+            id:
+              type: string
+              format: uuid
+            ticketNumber:
+              type: string
+              example: INC-2026-00451
+            title:
+              type: string
+            status:
+              $ref: '#/components/schemas/IncidentStatus'
+            priority:
+              $ref: '#/components/schemas/Priority'
+            assigneeId:
+              type: string
+              format: uuid
+            assigneeName:
+              type: string
+            queueId:
+              type: string
+              format: uuid
+            queueName:
+              type: string
+            slaStatus:
+              type: string
+              enum: [on_track, at_risk, breached, met, paused]
+            slaResponseDue:
+              type: string
+              format: date-time
+            slaResolutionDue:
+              type: string
+              format: date-time
+            isMajorIncident:
+              type: boolean
+            affectedCiId:
+              type: string
+              format: uuid
+            affectedCiName:
+              type: string
+
+    IncidentDetail:
+      allOf:
+        - $ref: '#/components/schemas/IncidentSummary'
+        - type: object
+          properties:
+            description:
+              type: string
+            category:
+              type: string
+            subcategory:
+              type: string
+            resolutionNotes:
+              type: string
+            workaround:
+              type: string
+            linkedProblemId:
+              type: string
+              format: uuid
+            linkedChangeId:
+              type: string
+              format: uuid
+            tags:
+              type: array
+              items:
+                type: string
+            aiClassification:
+              $ref: '#/components/schemas/IncidentClassificationResult'
+            customFields:
+              type: object
+              additionalProperties: true
+
+    CreateIncidentRequest:
+      type: object
+      required: [title, description]
+      properties:
+        title:
+          type: string
+          maxLength: 500
+        description:
+          type: string
+        priority:
+          $ref: '#/components/schemas/Priority'
+        affectedCiId:
+          type: string
+          format: uuid
+        queueId:
+          type: string
+          format: uuid
+        requesterId:
+          type: string
+          format: uuid
+        tags:
+          type: array
+          items:
+            type: string
+        customFields:
+          type: object
+          additionalProperties: true
+
+    UpdateIncidentRequest:
+      type: object
+      properties:
+        title:
+          type: string
+          maxLength: 500
+        description:
+          type: string
+        priority:
+          $ref: '#/components/schemas/Priority'
+        category:
+          type: string
+        subcategory:
+          type: string
+        affectedCiId:
+          type: string
+          format: uuid
+        tags:
+          type: array
+          items:
+            type: string
+        customFields:
+          type: object
+          additionalProperties: true
+
+    AssignIncidentRequest:
+      type: object
+      properties:
+        assigneeId:
+          type: string
+          format: uuid
+        queueId:
+          type: string
+          format: uuid
+        note:
+          type: string
+
+    EscalateIncidentRequest:
+      type: object
+      required: [tier, reason]
+      properties:
+        tier:
+          type: integer
+          enum: [2, 3]
+        reason:
+          type: string
+        targetTeamId:
+          type: string
+          format: uuid
+
+    ResolveIncidentRequest:
+      type: object
+      required: [resolutionNotes, resolutionCategoryCode]
+      properties:
+        resolutionNotes:
+          type: string
+        resolutionCategoryCode:
+          type: string
+          enum: [fixed, workaround_applied, user_error, no_fault_found, duplicate, by_design]
+        workaround:
+          type: string
+        generateKbArticle:
+          type: boolean
+          default: false
+          description: If true, triggers AI KB article draft generation from resolution notes
+
+    CloseIncidentRequest:
+      type: object
+      properties:
+        closureNote:
+          type: string
+        csatTrigger:
+          type: boolean
+          default: true
+
+    IncidentClassificationResult:
+      type: object
+      properties:
+        category:
+          type: string
+        subcategory:
+          type: string
+        suggestedPriority:
+          $ref: '#/components/schemas/Priority'
+        confidenceScore:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 1
+        affectedCiId:
+          type: string
+          format: uuid
+        affectedCiName:
+          type: string
+        recommendedQueueId:
+          type: string
+          format: uuid
+        classifiedAt:
+          type: string
+          format: date-time
+        isAutoApplied:
+          type: boolean
+
+    # ── Service Request ───────────────────────────
+    ServiceCatalogItem:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+        categoryId:
+          type: string
+          format: uuid
+        categoryName:
+          type: string
+        estimatedFulfillmentHours:
+          type: integer
+        requiresApproval:
+          type: boolean
+        formSchema:
+          type: object
+          description: JSONB form schema for dynamic form rendering
+          additionalProperties: true
+        isAvailable:
+          type: boolean
+
+    CreateServiceRequestRequest:
+      type: object
+      required: [serviceItemId, formData]
+      properties:
+        serviceItemId:
+          type: string
+          format: uuid
+        formData:
+          type: object
+          additionalProperties: true
+          description: Key-value pairs matching the service item's form schema
+        justification:
+          type: string
+        urgency:
+          type: string
+          enum: [standard, urgent]
+          default: standard
+
+    ServiceRequestDetail:
+      allOf:
+        - $ref: '#/components/schemas/AuditFields'
+        - type: object
+          properties:
+            id:
+              type: string
+              format: uuid
+            ticketNumber:
+              type: string
+              example: REQ-2026-00112
+            serviceItemId:
+              type: string
+              format: uuid
+            serviceItemName:
+              type: string
+            status:
+              type: string
+              enum: [submitted, pending_approval, approved, in_fulfillment, fulfilled, rejected, cancelled]
+            currentApprovalStep:
+              type: integer
+            totalApprovalSteps:
+              type: integer
+            fulfillmentTasks:
+              type: array
+              items:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  title:
+                    type: string
+                  isComplete:
+                    type: boolean
+
+    # ── Problem ───────────────────────────────────
+    CreateProblemRequest:
+      type: object
+      required: [title, description]
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        linkedIncidentIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+        affectedCiId:
+          type: string
+          format: uuid
+        assigneeId:
+          type: string
+          format: uuid
+
+    ProblemDetail:
+      allOf:
+        - $ref: '#/components/schemas/AuditFields'
+        - type: object
+          properties:
+            id:
+              type: string
+              format: uuid
+            ticketNumber:
+              type: string
+              example: PRB-2026-00023
+            title:
+              type: string
+            status:
+              type: string
+              enum: [open, under_investigation, known_error, resolved, closed]
+            rootCauseSummary:
+              type: string
+            workaround:
+              type: string
+            isKnownError:
+              type: boolean
+            permanentFixEta:
+              type: string
+              format: date
+            linkedIncidentCount:
+              type: integer
+            linkedChangeId:
+              type: string
+              format: uuid
+
+    # ── Change ────────────────────────────────────
+    CreateChangeRequest:
+      type: object
+      required: [title, description, changeType, scheduledStartTime, scheduledEndTime]
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        changeType:
+          $ref: '#/components/schemas/ChangeType'
+        riskLevel:
+          type: string
+          enum: [low, medium, high, critical]
+        affectedCiIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+        scheduledStartTime:
+          type: string
+          format: date-time
+        scheduledEndTime:
+          type: string
+          format: date-time
+        rollbackPlan:
+          type: string
+        testPlan:
+          type: string
+        backoutPlan:
+          type: string
+
+    ChangeRequestDetail:
+      allOf:
+        - $ref: '#/components/schemas/AuditFields'
+        - type: object
+          properties:
+            id:
+              type: string
+              format: uuid
+            ticketNumber:
+              type: string
+              example: CHG-2026-00078
+            title:
+              type: string
+            changeType:
+              $ref: '#/components/schemas/ChangeType'
+            status:
+              $ref: '#/components/schemas/ChangeStatus'
+            riskLevel:
+              type: string
+            cabMeetingId:
+              type: string
+              format: uuid
+            cabApprovalCount:
+              type: integer
+            cabRejectionCount:
+              type: integer
+            scheduledStartTime:
+              type: string
+              format: date-time
+            scheduledEndTime:
+              type: string
+              format: date-time
+            hasConflicts:
+              type: boolean
+              description: True if overlapping CIs have other changes in same window
+            conflictingChangeIds:
+              type: array
+              items:
+                type: string
+                format: uuid
+
+    ChangeCalendarEntry:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        ticketNumber:
+          type: string
+        title:
+          type: string
+        changeType:
+          $ref: '#/components/schemas/ChangeType'
+        status:
+          $ref: '#/components/schemas/ChangeStatus'
+        scheduledStartTime:
+          type: string
+          format: date-time
+        scheduledEndTime:
+          type: string
+          format: date-time
+        hasConflicts:
+          type: boolean
+        affectedCiNames:
+          type: array
+          items:
+            type: string
+
+    # ── SLA ───────────────────────────────────────
+    SlaPolicy:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+        targets:
+          type: array
+          items:
+            type: object
+            properties:
+              priority:
+                $ref: '#/components/schemas/Priority'
+              responseTimeMinutes:
+                type: integer
+              resolutionTimeMinutes:
+                type: integer
+        businessHoursCalendarId:
+          type: string
+          format: uuid
+        isDefault:
+          type: boolean
+
+    CreateSlaPolicyRequest:
+      type: object
+      required: [name, targets, businessHoursCalendarId]
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        targets:
+          type: array
+          items:
+            type: object
+            required: [priority, responseTimeMinutes, resolutionTimeMinutes]
+            properties:
+              priority:
+                $ref: '#/components/schemas/Priority'
+              responseTimeMinutes:
+                type: integer
+              resolutionTimeMinutes:
+                type: integer
+        businessHoursCalendarId:
+          type: string
+          format: uuid
+        isDefault:
+          type: boolean
+
+    SlaTimerStatus:
+      type: object
+      properties:
+        ticketId:
+          type: string
+          format: uuid
+        ticketType:
+          type: string
+        policyId:
+          type: string
+          format: uuid
+        policyName:
+          type: string
+        status:
+          type: string
+          enum: [active, paused, warning, breached, met, voided]
+        responseStatus:
+          type: string
+          enum: [pending, met, breached]
+        responseDueAt:
+          type: string
+          format: date-time
+        responseRespondedAt:
+          type: string
+          format: date-time
+        resolutionDueAt:
+          type: string
+          format: date-time
+        elapsedPercent:
+          type: number
+          format: float
+          description: Percentage of resolution SLA window elapsed
+        remainingMinutes:
+          type: integer
+        isPaused:
+          type: boolean
+        pauseReason:
+          type: string
+        warningThresholdPercent:
+          type: number
+          description: SLA warning triggered when elapsedPercent exceeds this
+
+    # ── CMDB ──────────────────────────────────────
+    ConfigurationItem:
+      allOf:
+        - $ref: '#/components/schemas/AuditFields'
+        - type: object
+          properties:
+            id:
+              type: string
+              format: uuid
+            name:
+              type: string
+            ciType:
+              type: string
+            status:
+              type: string
+              enum: [active, maintenance, retired, decommissioned]
+            ownerId:
+              type: string
+              format: uuid
+            ownerName:
+              type: string
+            attributes:
+              type: object
+              description: Tenant-defined custom attributes (JSONB)
+              additionalProperties: true
+
+    CreateCIRequest:
+      type: object
+      required: [name, ciType]
+      properties:
+        name:
+          type: string
+        ciType:
+          type: string
+        status:
+          type: string
+          enum: [active, maintenance, retired]
+          default: active
+        ownerId:
+          type: string
+          format: uuid
+        attributes:
+          type: object
+          additionalProperties: true
+
+    CIImpactResult:
+      type: object
+      properties:
+        ciId:
+          type: string
+          format: uuid
+        ciName:
+          type: string
+        analysisDepth:
+          type: integer
+        affectedCis:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+                format: uuid
+              name:
+                type: string
+              ciType:
+                type: string
+              relationshipPath:
+                type: array
+                items:
+                  type: string
+        openIncidents:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+                format: uuid
+              ticketNumber:
+                type: string
+              title:
+                type: string
+        scheduledChanges:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+                format: uuid
+              ticketNumber:
+                type: string
+              title:
+                type: string
+              scheduledStartTime:
+                type: string
+                format: date-time
+
+    CIRelationshipGraph:
+      type: object
+      properties:
+        ciId:
+          type: string
+          format: uuid
+        nodes:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+                format: uuid
+              name:
+                type: string
+              ciType:
+                type: string
+        edges:
+          type: array
+          items:
+            type: object
+            properties:
+              sourceId:
+                type: string
+                format: uuid
+              targetId:
+                type: string
+                format: uuid
+              relationshipType:
+                type: string
+
+    # ── Knowledge Base ────────────────────────────
+    KbArticle:
+      allOf:
+        - $ref: '#/components/schemas/AuditFields'
+        - type: object
+          properties:
+            id:
+              type: string
+              format: uuid
+            title:
+              type: string
+            slug:
+              type: string
+            status:
+              type: string
+              enum: [draft, review, published, archived]
+            categoryId:
+              type: string
+              format: uuid
+            categoryName:
+              type: string
+            tags:
+              type: array
+              items:
+                type: string
+            viewCount:
+              type: integer
+            helpfulCount:
+              type: integer
+            version:
+              type: integer
+            isAiGenerated:
+              type: boolean
+              description: True if this article was generated by the AI pipeline
+            generatedFromIncidentId:
+              type: string
+              format: uuid
+
+    CreateKbArticleRequest:
+      type: object
+      required: [title, body]
+      properties:
+        title:
+          type: string
+        body:
+          type: string
+          description: Rich text or Markdown content
+        categoryId:
+          type: string
+          format: uuid
+        tags:
+          type: array
+          items:
+            type: string
+        locale:
+          type: string
+          enum: [en, ar]
+          default: en
+
+    # ── AI ────────────────────────────────────────
+    CopilotResponse:
+      type: object
+      properties:
+        conversationId:
+          type: string
+          format: uuid
+        message:
+          type: string
+        isAiGenerated:
+          type: boolean
+          description: Always true — surface this label in UI
+        sources:
+          type: array
+          items:
+            type: object
+            properties:
+              type:
+                type: string
+                enum: [kb_article, resolved_incident, itil_process]
+              id:
+                type: string
+                format: uuid
+              title:
+                type: string
+              url:
+                type: string
+        requiresHumanReview:
+          type: boolean
+          description: True when copilot recommends escalation to human
+
+    KbSuggestionResult:
+      type: object
+      properties:
+        suggestions:
+          type: array
+          items:
+            type: object
+            properties:
+              type:
+                type: string
+                enum: [kb_article, resolved_incident]
+              id:
+                type: string
+                format: uuid
+              title:
+                type: string
+              relevanceScore:
+                type: number
+                format: float
+              excerpt:
+                type: string
+              isStale:
+                type: boolean
+                description: True if article is older than 180 days
+
+    # ── Reports ───────────────────────────────────
+    SlaComplianceReport:
+      type: object
+      properties:
+        period:
+          type: object
+          properties:
+            from:
+              type: string
+              format: date
+            to:
+              type: string
+              format: date
+        overall:
+          type: object
+          properties:
+            totalTickets:
+              type: integer
+            slaMetCount:
+              type: integer
+            slaBreachedCount:
+              type: integer
+            complianceRate:
+              type: number
+              format: float
+        breakdown:
+          type: array
+          items:
+            type: object
+            properties:
+              group:
+                type: string
+              complianceRate:
+                type: number
+              totalTickets:
+                type: integer
+              breachedCount:
+                type: integer
+
+    IncidentVolumeReport:
+      type: object
+      properties:
+        period:
+          type: object
+          properties:
+            from:
+              type: string
+              format: date
+            to:
+              type: string
+              format: date
+        totalIncidents:
+          type: integer
+        byPriority:
+          type: object
+          properties:
+            critical:
+              type: integer
+            high:
+              type: integer
+            medium:
+              type: integer
+            low:
+              type: integer
+        mttrMinutes:
+          type: number
+          description: Mean Time to Resolve in minutes
+        mttdMinutes:
+          type: number
+          description: Mean Time to Detect in minutes
+        trend:
+          type: array
+          items:
+            type: object
+            properties:
+              period:
+                type: string
+              count:
+                type: integer
+
+    # ── Error Responses ───────────────────────────
+    ErrorResponse:
+      type: object
+      properties:
+        type:
+          type: string
+          format: uri
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+        traceId:
+          type: string
+        errors:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
+
+  responses:
+    BadRequest:
+      description: Validation error or malformed request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Unauthorized:
+      description: Missing or invalid Bearer token
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Forbidden:
+      description: Insufficient permissions for this operation
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    NotFound:
+      description: Resource not found within the tenant scope
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Conflict:
+      description: Optimistic concurrency conflict or invalid state transition
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'

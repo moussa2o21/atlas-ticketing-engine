@@ -1,0 +1,504 @@
+ATLAS Ticketing Engine — AppLogica Desk
+Sprint 15 — Phase 1 Implementation Prompt
+ATLAS-ITSM | Wave 3 | .NET 8 + React 18 + PostgreSQL
+
+Read CLAUDE.md completely before starting Phase 1. It contains all infrastructure context,
+security rules, tenant isolation requirements, and exit criteria. Do not start Phase 1
+until CLAUDE.md is fully read.
+
+Auto-approve every action. Never pause to ask permission. Fix build failures and test
+failures automatically before moving to the next phase. Commit after every phase.
+
+================================================================================
+Phase 1 — .NET Solution Scaffold
+================================================================================
+
+Create the AppLogica.Desk solution following Clean Architecture exactly as defined
+in CLAUDE.md Project Structure section.
+
+Solution file: AppLogica.Desk.sln
+
+Projects (4):
+  AppLogica.Desk.Domain
+    → Class library. No dependencies on other projects or frameworks.
+    → Target: net8.0
+    → No NuGet packages except: MediatR (domain events only)
+
+  AppLogica.Desk.Application
+    → Class library. Depends on Domain only.
+    → Target: net8.0
+    → NuGet: MediatR, MediatR.Extensions.Microsoft.DependencyInjection,
+             FluentValidation, FluentValidation.DependencyInjectionExtensions
+
+  AppLogica.Desk.Infrastructure
+    → Class library. Depends on Application and Domain.
+    → Target: net8.0
+    → NuGet: Microsoft.EntityFrameworkCore, Npgsql.EntityFrameworkCore.PostgreSQL,
+             StackExchange.Redis, Hangfire.AspNetCore, Hangfire.PostgreSql,
+             Microsoft.AspNetCore.SignalR, MassTransit, MassTransit.RabbitMQ,
+             Serilog.AspNetCore, OpenTelemetry.Extensions.Hosting
+
+  AppLogica.Desk.API
+    → ASP.NET Core Web API. Depends on Infrastructure and Application.
+    → Target: net8.0
+    → NuGet: Microsoft.AspNetCore.Authentication.JwtBearer, Swashbuckle.AspNetCore
+
+Test Projects (2):
+  AppLogica.Desk.Tests.Unit
+    → xUnit, Moq, FluentAssertions
+
+  AppLogica.Desk.Tests.Integration
+    → xUnit, Testcontainers, Testcontainers.PostgreSQL, FluentAssertions
+
+Create appsettings.json in API project with placeholder sections:
+  DB, EVENTBUS, REDIS, AIGATEWAY, AUTH (no real values — values come from K8s secrets)
+
+Create docker-compose.yml with: postgres:15, redis:7, rabbitmq:3-management
+  postgres: port 5432, database: atlas_desk, user: desk_user, password: desk_local_only
+  redis: port 6379
+  rabbitmq: ports 5672 + 15672, vhost: atlas
+
+Create .github/workflows/deploy.yml with:
+  Triggers: push to main
+  Jobs: build → test → docker-build → docker-push → kubectl-apply
+  Use GitHub secrets for ACR credentials and kubeconfig
+
+Create .claude/settings.json:
+  { "autoApprove": true, "autoCommit": false }
+
+Acceptance: dotnet build AppLogica.Desk.sln returns 0 errors, 0 warnings.
+Commit: "feat(desk): Phase 1 — solution scaffold, 4 projects, docker-compose, CI/CD"
+
+================================================================================
+Phase 2 — Domain Model & Incident Aggregate
+================================================================================
+
+Implement the complete Incident domain model in AppLogica.Desk.Domain.
+
+Folder structure:
+  Domain/
+  ├── Common/
+  │   ├── Entity.cs               → base entity: Id (Guid), TenantId, CreatedAt, UpdatedAt,
+  │   │                              CreatedBy, UpdatedBy, IsDeleted, DeletedAt, DeletedBy
+  │   ├── IDomainEvent.cs         → marker interface
+  │   └── AggregateRoot.cs        → base aggregate with List<IDomainEvent> DomainEvents
+  ├── Incidents/
+  │   ├── Incident.cs             → Incident aggregate root
+  │   ├── IncidentStatus.cs       → enum: New, Assigned, InProgress, Pending, Escalated, Major, Resolved, Closed
+  │   ├── Priority.cs             → enum: Critical, High, Medium, Low
+  │   ├── Impact.cs               → enum: Enterprise, Department, Team, Individual
+  │   ├── Urgency.cs              → enum: Immediate, High, Normal, Low
+  │   ├── IncidentType.cs         → enum: Incident, MajorIncident
+  │   └── Events/
+  │       ├── IncidentCreatedEvent.cs
+  │       ├── IncidentAssignedEvent.cs
+  │       ├── IncidentEscalatedEvent.cs
+  │       ├── IncidentResolvedEvent.cs
+  │       └── IncidentClosedEvent.cs
+  ├── Sla/
+  │   ├── SlaPolicy.cs            → entity: Name, Targets (list of SlaTarget)
+  │   ├── SlaTarget.cs            → value object: Priority, ResponseMinutes, ResolutionMinutes
+  │   ├── SlaTimer.cs             → entity: IncidentId, ResponseDueAt, ResolutionDueAt, Status, PauseReason
+  │   ├── SlaTimerStatus.cs       → enum: Active, Paused, Warning, Breached, Met, Voided
+  │   └── Events/
+  │       ├── SlaWarningEvent.cs
+  │       └── SlaBreachedEvent.cs
+  └── Repositories/
+      ├── IIncidentRepository.cs
+      └── ISlaRepository.cs
+
+Incident aggregate rules:
+  → TicketNumber generated on creation: "INC-{YYYY}-{NNNNN}" zero-padded sequential per tenant
+  → Priority = f(Impact, Urgency) using standard ITIL priority matrix
+  → State machine: only valid transitions allowed (guard conditions as private methods)
+  → Each transition raises the corresponding domain event
+  → IsMajorIncident = false by default; set only via DeclareMajorIncident() method
+  → ResolutionNotes required when calling Resolve()
+
+IIncidentRepository interface:
+  Task<Incident?> GetByIdAsync(Guid id, Guid tenantId, CancellationToken ct)
+  Task<IReadOnlyList<Incident>> ListAsync(IncidentFilter filter, CancellationToken ct)
+  Task AddAsync(Incident incident, CancellationToken ct)
+  Task UpdateAsync(Incident incident, CancellationToken ct)
+  Task<int> GetNextTicketSequenceAsync(Guid tenantId, int year, CancellationToken ct)
+
+Unit tests in AppLogica.Desk.Tests.Unit:
+  → CanCreate_Incident_WithValidData
+  → CanTransition_NewToAssigned_WhenAssigneeProvided
+  → CannotTransition_ClosedToClosed (guard test)
+  → PriorityMatrix_Critical_WhenImpactEnterpriseAndUrgencyImmediate
+  → DomainEvent_Raised_OnAssignment
+  → DomainEvent_Raised_OnResolution
+  → ResolutionNotes_Required_ToResolve
+
+Acceptance: dotnet test --filter "Category=Unit" → all tests pass, 0 failures.
+Commit: "feat(desk): Phase 2 — Incident aggregate, SLA domain, domain events, 7 unit tests"
+
+================================================================================
+Phase 3 — Database Schema & EF Core Infrastructure
+================================================================================
+
+Implement PostgreSQL schema and EF Core context in AppLogica.Desk.Infrastructure.
+
+Files to create:
+  Infrastructure/
+  ├── Persistence/
+  │   ├── DeskDbContext.cs
+  │   ├── ITenantContext.cs           → interface: string SchemaName, Guid TenantId
+  │   ├── TenantContext.cs            → resolves from IHttpContextAccessor JWT claims
+  │   ├── Configurations/
+  │   │   ├── IncidentConfiguration.cs
+  │   │   ├── SlaTimerConfiguration.cs
+  │   │   └── SlaPolicyConfiguration.cs
+  │   ├── Repositories/
+  │   │   ├── IncidentRepository.cs
+  │   │   └── SlaRepository.cs
+  │   └── Migrations/
+  │       └── (generated by dotnet ef migrations add InitialCreate)
+  └── DependencyInjection.cs
+
+DeskDbContext rules:
+  → Schema resolved from ITenantContext.SchemaName at runtime
+  → Override SaveChangesAsync to set CreatedAt, UpdatedAt, CreatedBy, UpdatedBy
+  → Global query filter: .HasQueryFilter(e => !e.IsDeleted && e.TenantId == tenantContext.TenantId)
+  → audit_log table: no EF tracking — raw SQL INSERT only, never UPDATE or DELETE
+
+audit_log table schema (raw SQL in schema-migration-job.yaml):
+  CREATE TABLE IF NOT EXISTS {schema}.audit_log (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id UUID NOT NULL,
+    entity_type VARCHAR(100) NOT NULL,
+    entity_id UUID NOT NULL,
+    action VARCHAR(50) NOT NULL,
+    old_value JSONB,
+    new_value JSONB,
+    actor_id UUID,
+    occurred_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    is_ai_action BOOLEAN DEFAULT FALSE,
+    ai_confidence FLOAT
+  );
+  -- No UPDATE or DELETE permissions on audit_log — enforced via RLS
+  CREATE POLICY audit_log_insert_only ON {schema}.audit_log FOR INSERT WITH CHECK (true);
+  ALTER TABLE {schema}.audit_log ENABLE ROW LEVEL SECURITY;
+
+Indexes to create:
+  incidents: (tenant_id, status), (tenant_id, assignee_id), (tenant_id, created_at DESC)
+  sla_timers: (tenant_id, status, resolution_due_at) — for Hangfire SLA job
+  audit_log: (tenant_id, entity_id, occurred_at DESC)
+
+Run: dotnet ef migrations add InitialCreate --project Infrastructure --startup-project API
+     dotnet ef database update (against local docker-compose postgres)
+
+Integration test in AppLogica.Desk.Tests.Integration (Testcontainers):
+  → CanCreate_AndRetrieve_Incident_WithTenantIsolation
+  → TenantA_CannotSee_TenantB_Incidents
+  → AuditLog_InsertOnly_ThrowsOnUpdate
+
+Acceptance: dotnet test --filter "Category=Integration" → all tests pass.
+            Schema created in local postgres. Tenant isolation verified.
+Commit: "feat(desk): Phase 3 — EF Core schema, repositories, tenant isolation, audit log RLS"
+
+================================================================================
+Phase 4 — Incident Application Layer (CQRS Commands & Queries)
+================================================================================
+
+Implement MediatR commands and queries in AppLogica.Desk.Application.
+
+Files to create:
+  Application/
+  ├── Incidents/
+  │   ├── Commands/
+  │   │   ├── CreateIncident/
+  │   │   │   ├── CreateIncidentCommand.cs
+  │   │   │   ├── CreateIncidentCommandHandler.cs
+  │   │   │   └── CreateIncidentCommandValidator.cs
+  │   │   ├── AssignIncident/
+  │   │   │   ├── AssignIncidentCommand.cs
+  │   │   │   ├── AssignIncidentCommandHandler.cs
+  │   │   │   └── AssignIncidentCommandValidator.cs
+  │   │   ├── EscalateIncident/
+  │   │   ├── ResolveIncident/
+  │   │   └── CloseIncident/
+  │   ├── Queries/
+  │   │   ├── GetIncident/
+  │   │   │   ├── GetIncidentQuery.cs
+  │   │   │   └── GetIncidentQueryHandler.cs
+  │   │   ├── ListIncidents/
+  │   │   │   ├── ListIncidentsQuery.cs         → filters: status[], priority[], assigneeId,
+  │   │   │   │                                    queueId, slaRisk, createdFrom, createdTo, q
+  │   │   │   └── ListIncidentsQueryHandler.cs
+  │   │   └── GetIncidentTimeline/
+  │   ├── DTOs/
+  │   │   ├── IncidentDto.cs
+  │   │   ├── IncidentDetailDto.cs
+  │   │   └── TimelineEntryDto.cs
+  │   └── EventHandlers/
+  │       ├── IncidentCreatedEventHandler.cs    → publishes desk.incident.created to Event Bus
+  │       ├── IncidentAssignedEventHandler.cs   → publishes desk.incident.assigned
+  │       └── IncidentResolvedEventHandler.cs   → publishes desk.incident.resolved
+  ├── Sla/
+  │   ├── Commands/
+  │   │   ├── PauseSlaTimer/
+  │   │   └── ResumeSlaTimer/
+  │   └── Jobs/
+  │       └── SlaEvaluationJob.cs              → Hangfire recurring job, 60-second cycle
+  └── Common/
+      ├── Behaviours/
+      │   ├── ValidationBehaviour.cs           → FluentValidation pipeline behaviour
+      │   └── LoggingBehaviour.cs
+      └── DependencyInjection.cs
+
+SlaEvaluationJob logic:
+  1. Query all active SLA timers where resolution_due_at < NOW() + 20min (warning window)
+  2. For timers at 80%+ elapsed → publish desk.sla.warning to Event Bus
+  3. For timers where resolution_due_at < NOW() → mark Breached, publish desk.sla.breached
+  4. Job must be idempotent — safe to run multiple times
+
+CreateIncident handler must:
+  → Resolve TenantId from ITenantContext (never from command body)
+  → Generate TicketNumber via IIncidentRepository.GetNextTicketSequenceAsync
+  → Calculate Priority from Impact × Urgency matrix
+  → Create SLA timer immediately using matching SLA policy (Critical: 1h/4h, High: 4h/8h, Medium: 8h/24h, Low: 24h/72h)
+  → Raise IncidentCreatedEvent
+  → Write to audit_log
+
+Unit tests:
+  → CreateIncidentHandler_GeneratesTicketNumber
+  → CreateIncidentHandler_CreatesSlaTimer_ForPriority_Critical
+  → SlaEvaluationJob_PublishesWarning_At80PercentElapsed
+  → ValidationBehaviour_Rejects_EmptyTitle
+
+Acceptance: dotnet test → all tests pass. SlaEvaluationJob registered in Hangfire.
+Commit: "feat(desk): Phase 4 — CQRS handlers, SLA evaluation job, event publishers, 4 unit tests"
+
+================================================================================
+Phase 5 — API Controllers & Program.cs
+================================================================================
+
+Implement ASP.NET Core Web API in AppLogica.Desk.API.
+
+Files to create:
+  API/
+  ├── Controllers/
+  │   ├── IncidentsController.cs         → all incident endpoints per atlas-desk-api.yaml
+  │   └── HealthController.cs            → /health/live, /health/ready
+  ├── Hubs/
+  │   └── DeskHub.cs                     → SignalR hub at /hubs/desk
+  ├── Middleware/
+  │   └── TenantResolutionMiddleware.cs  → extracts TenantId from JWT, sets ITenantContext
+  └── Program.cs
+
+Program.cs must register:
+  → AddAuthentication(JwtBearer) pointed at ATLAS Identity JWKS endpoint
+  → AddMediatR, AddFluentValidation
+  → AddDbContext with schema-per-tenant connection string factory
+  → AddHangfire + AddHangfireServer (desk-worker service only)
+  → AddSignalR
+  → AddMassTransit with RabbitMQ
+  → AddStackExchangeRedis
+  → MapHub<DeskHub>("/hubs/desk")
+  → UseMiddleware<TenantResolutionMiddleware>
+  → Serilog structured logging (no credential fields in logs)
+  → OpenTelemetry tracing
+
+IncidentsController rules:
+  → All endpoints require [Authorize]
+  → TenantId NEVER in route or body — always from ITenantContext
+  → Return 201 Created with Location header on POST /incidents
+  → Return ProblemDetails (RFC 7807) on all errors
+  → Return 409 Conflict on invalid state transitions
+
+HealthController:
+  GET /health/live   → always 200
+  GET /health/ready  → checks: postgres connection, rabbitmq connection
+                       returns 200 if all healthy, 503 if any unhealthy
+                       format: { status: "healthy|degraded", checks: { postgres: "...", rabbitmq: "..." } }
+
+DeskHub (SignalR):
+  → Client joins group by TenantId on connect
+  → Server pushes: IncidentUpdated, SlaWarning, SlaBreached events to tenant group
+  → Triggered by domain event handlers (not directly from API handlers)
+
+Acceptance:
+  dotnet run in API project
+  curl http://localhost:5200/health/live → 200
+  curl http://localhost:5200/health/ready → 200 (postgres + rabbitmq from docker-compose)
+  POST /api/desk/incidents with valid JWT → 201 with INC-YYYY-NNNNN ticket number
+  GET /api/desk/incidents/{id}/timeline → returns timeline entries
+Commit: "feat(desk): Phase 5 — API controllers, SignalR hub, health endpoints, Program.cs"
+
+================================================================================
+Phase 6 — Tests (40+ tests)
+================================================================================
+
+Complete test coverage across unit and integration test projects.
+
+Unit tests (AppLogica.Desk.Tests.Unit) — target: 25+ tests:
+
+  Incident Domain:
+    → Incident_Create_SetsStatusToNew
+    → Incident_Create_GeneratesTicketNumberFormat
+    → Incident_Assign_TransitionsToAssigned_RaisesEvent
+    → Incident_Escalate_TransitionsToEscalated_RaisesEvent
+    → Incident_Resolve_RequiresResolutionNotes
+    → Incident_Close_FromResolvedOnly
+    → Incident_CannotClose_FromNew (guard test)
+    → PriorityMatrix_AllCombinations (9 tests — one per Impact×Urgency pair)
+
+  SLA Engine:
+    → SlaTimer_Create_SetsCorrectDueDates_ForCritical (1h response, 4h resolution)
+    → SlaTimer_Create_SetsCorrectDueDates_ForHigh
+    → SlaTimer_Pause_StopsElapsedTime
+    → SlaTimer_Resume_RecalculatesDueDate
+    → SlaEvaluationJob_Warning_At80Percent
+    → SlaEvaluationJob_Breach_WhenPastDue
+    → SlaEvaluationJob_Idempotent_DoesNotDoublePublish
+
+  Application:
+    → CreateIncidentHandler_TenantId_FromContext_NotBody
+    → ValidationBehaviour_Rejects_EmptyTitle
+    → ValidationBehaviour_Rejects_MissingDescription
+
+Integration tests (AppLogica.Desk.Tests.Integration) — target: 15+ tests:
+
+  Use Testcontainers: spin up postgres:15 and rabbitmq:3-management containers per test class.
+
+  → CanCreate_Incident_EndToEnd (POST → repository → retrieve)
+  → TenantIsolation_TenantA_CannotRead_TenantB_Incidents
+  → TenantIsolation_TenantA_CannotUpdate_TenantB_Incidents
+  → SlaTimer_Created_Automatically_On_IncidentCreation
+  → SlaEvaluationJob_PublishesEvent_ToRabbitMQ (verify message in queue)
+  → AuditLog_AppendOnly_InsertSucceeds
+  → AuditLog_AppendOnly_UpdateThrows
+  → AuditLog_AppendOnly_DeleteThrows
+  → HealthCheck_Ready_ReturnsPostgresHealthy
+  → SignalR_Hub_TenantsReceive_OwnEventsOnly
+
+Acceptance: dotnet test → 40+ tests, 0 failures, 0 skipped.
+            Coverage report: dotnet test --collect:"XPlat Code Coverage"
+Commit: "feat(desk): Phase 6 — 40+ tests, tenant isolation verified, SLA edge cases, audit log"
+
+================================================================================
+Phase 7 — Kubernetes Manifests, Deploy & API Gateway Route
+================================================================================
+
+Create all Kubernetes manifests in k8s/ folder and deploy to cluster.
+
+Files to create:
+
+  k8s/namespace.yaml
+    → namespace: atlas-desk
+    → labels: app.kubernetes.io/part-of: atlas
+
+  k8s/deployment.yaml (desk-api)
+    → image: {ACR}/applogica-desk-api:v1.0.0
+    → replicas: 2 (min)
+    → resources: requests 250m CPU, 512Mi RAM; limits 1 CPU, 1Gi RAM
+    → readinessProbe: GET /health/ready, initialDelaySeconds: 10
+    → livenessProbe: GET /health/live, initialDelaySeconds: 30
+    → antiAffinity: spread across availability zones
+    → env vars from K8s secrets (never plaintext values)
+
+  k8s/deployment-worker.yaml (desk-worker — Hangfire)
+    → image: {ACR}/applogica-desk-worker:v1.0.0
+    → replicas: 1 (min), 5 (max)
+    → NO service, NO ingress — ClusterIP only, internal only
+    → env: HANGFIRE__ROLE=worker
+
+  k8s/deployment-signalr.yaml (desk-signalr)
+    → image: {ACR}/applogica-desk-signalr:v1.0.0
+    → replicas: 2
+    → Requires sticky session annotation for Azure Application Gateway
+
+  k8s/service.yaml
+    → desk-api: ClusterIP, port 80 → container 8080
+    → desk-signalr: ClusterIP with session affinity annotation
+
+  k8s/ingress.yaml
+    → desk-api: /api/desk/* → desk-api service
+    → desk-signalr: /hubs/desk → desk-signalr service (WebSocket upgrade headers)
+    → TLS via cert-manager
+
+  k8s/hpa.yaml
+    → desk-api: min 2, max 10, CPU 70% target
+    → desk-worker: min 1, max 5, CPU 80% target
+
+  k8s/networkpolicy.yaml
+    → desk-api: ingress from api-gateway namespace only
+    → desk-worker: NO ingress from anywhere (egress only: postgres, rabbitmq, redis)
+    → desk-signalr: ingress from api-gateway namespace only (WebSocket)
+    → All: egress to atlas-platform namespace (rabbitmq, redis, identity)
+
+  k8s/schema-migration-job.yaml
+    → Kubernetes Job (not CronJob) — runs once on deploy
+    → Executes EF Core migrations: dotnet ef database update
+    → Also creates audit_log table with RLS policy
+    → completions: 1, backoffLimit: 3
+
+  scripts/create-k8s-secrets.sh
+    → Creates all 4 secrets in atlas-desk namespace
+    → Reads values from environment variables (never hardcoded)
+    → Idempotent: kubectl create secret --dry-run=client -o yaml | kubectl apply -f -
+
+  Dockerfile (multi-stage):
+    Stage 1 (build): mcr.microsoft.com/dotnet/sdk:8.0
+    Stage 2 (runtime): mcr.microsoft.com/dotnet/aspnet:8.0
+    Non-root user. No dev dependencies in runtime image.
+
+Register API Gateway route:
+  Add desk route to ATLAS API Gateway configuration:
+    - path: /api/desk/
+    - upstream: http://desk-api.atlas-desk.svc.cluster.local/api/desk/
+    - auth: required (JWT validated at gateway)
+    - rate limit: 100 req/min per tenant
+
+Deploy commands:
+  kubectl apply -f k8s/namespace.yaml
+  bash scripts/create-k8s-secrets.sh
+  kubectl apply -f k8s/schema-migration-job.yaml
+  kubectl wait --for=condition=complete job/desk-schema-migration -n atlas-desk --timeout=120s
+  kubectl apply -f k8s/ (remaining manifests)
+  kubectl rollout status deployment/desk-api -n atlas-desk
+  kubectl rollout status deployment/desk-worker -n atlas-desk
+
+Verify:
+  kubectl get pods -n atlas-desk                           → all pods Running
+  curl https://atlas-gateway/api/desk/health/ready         → 200
+  kubectl logs -l app=desk-worker -n atlas-desk            → Hangfire: SlaEvaluationJob registered
+
+Acceptance: All 8 exit criteria from CLAUDE.md ## Exit Criteria section must pass.
+Commit: "feat(desk): Phase 7 — K8s manifests, deployed to cluster, API Gateway route active, v1.0.0"
+
+================================================================================
+Sprint 15 Complete — Final Verification
+================================================================================
+
+Run this verification sequence after Phase 7:
+
+  1. kubectl get pods -n atlas-desk
+     Expected: desk-api (2/2 Running), desk-worker (1/1 Running), desk-signalr (2/2 Running)
+
+  2. curl -H "Authorization: Bearer {valid-jwt}" \
+          -X POST https://atlas-gateway/api/desk/incidents \
+          -d '{"title":"Test Incident","description":"Phase 7 validation","priority":"High"}'
+     Expected: 201 Created, body contains ticketNumber "INC-2026-00001"
+
+  3. kubectl exec -n atlas-desk -it {desk-worker-pod} -- \
+       rabbitmqadmin --host atlas-rabbitmq.atlas-platform -u guest -p {password} \
+       list queues | grep atlas.desk
+     Expected: atlas.desk.events queue exists, messages_ready shows 1
+
+  4. dotnet test AppLogica.Desk.sln
+     Expected: 40+ tests pass, 0 failures
+
+  5. curl https://atlas-gateway/api/desk/health/ready
+     Expected: {"status":"healthy","checks":{"postgres":"healthy","rabbitmq":"healthy"}}
+
+Print final summary:
+  ✅ Sprint 15 — AppLogica Desk Phase 1 Complete
+  📦 Services: desk-api v1.0.0, desk-worker v1.0.0, desk-signalr v1.0.0
+  🗄️  Schema: desk schema created with tenant isolation and audit_log RLS
+  🧪 Tests: {N} passing, 0 failures
+  📡 Events: desk.incident.created publishing to atlas.desk.events
+  🔗 Gateway: /api/desk/ route active
+  🔜 Next: Sprint 16 — SLA Engine Full, Service Catalog, Problem Management
