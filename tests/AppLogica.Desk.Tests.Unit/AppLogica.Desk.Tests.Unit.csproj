@@ -25,6 +25,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\AppLogica.Desk.Domain\AppLogica.Desk.Domain.csproj" />
     <ProjectReference Include="..\..\src\AppLogica.Desk.Application\AppLogica.Desk.Application.csproj" />
+    <ProjectReference Include="..\..\src\AppLogica.Desk.Infrastructure\AppLogica.Desk.Infrastructure.csproj" />
   </ItemGroup>
 
 </Project>

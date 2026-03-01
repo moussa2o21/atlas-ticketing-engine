@@ -13,3 +13,6 @@
 | 2026-03-01T04:45:00 | Phase 4 | CQRS Queries | 6 query files (Get/List/Timeline) | DONE | DTOs, pagination |
 | 2026-03-01T04:45:00 | Phase 4 | SLA & Events | SlaEvaluationJob, Pause/Resume, EventHandlers | DONE | Idempotent SLA engine |
 | 2026-03-01T04:45:00 | Phase 4 | Pipeline | ValidationBehaviour, LoggingBehaviour, DI | DONE | MediatR pipeline configured |
+| 2026-03-01T05:00:00 | Phase 5 | API Controllers | IncidentsController, HealthController | DONE | 10 endpoints + health checks |
+| 2026-03-01T05:00:00 | Phase 5 | SignalR & Middleware | DeskHub, TenantResolutionMiddleware | DONE | Real-time tenant-scoped events |
+| 2026-03-01T05:00:00 | Phase 5 | Program.cs | Complete rewrite | DONE | JWT, MediatR, EF, SignalR, Swagger |
