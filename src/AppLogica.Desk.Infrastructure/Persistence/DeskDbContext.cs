@@ -1,3 +1,4 @@
+using AppLogica.Desk.Application.Common.Interfaces;
 using AppLogica.Desk.Domain.Common;
 using AppLogica.Desk.Domain.Incidents;
 using AppLogica.Desk.Domain.Sla;

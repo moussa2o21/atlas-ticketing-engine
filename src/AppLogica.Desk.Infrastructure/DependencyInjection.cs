@@ -1,3 +1,4 @@
+using AppLogica.Desk.Application.Common.Interfaces;
 using AppLogica.Desk.Domain.Repositories;
 using AppLogica.Desk.Infrastructure.Persistence;
 using AppLogica.Desk.Infrastructure.Persistence.Repositories;

@@ -1,3 +1,4 @@
+using AppLogica.Desk.Application.Common.Interfaces;
 using Microsoft.AspNetCore.Http;
 
 namespace AppLogica.Desk.Infrastructure.Persistence;
