@@ -1,4 +1,5 @@
 using AppLogica.Desk.Infrastructure.Persistence;
+using MassTransit;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -29,10 +30,11 @@ public sealed class HealthController : ControllerBase
     [HttpGet("/health/ready")]
     public async Task<IActionResult> Ready(
         [FromServices] DeskDbContext dbContext,
+        [FromServices] IServiceProvider serviceProvider,
         CancellationToken cancellationToken)
     {
         var postgresStatus = "unhealthy";
-        var rabbitmqStatus = "degraded"; // Will be connected in deployment
+        var rabbitmqStatus = "not_configured";
 
         // Check PostgreSQL connectivity
         try
@@ -45,11 +47,31 @@ public sealed class HealthController : ControllerBase
             postgresStatus = "unhealthy";
         }
 
-        // RabbitMQ: return "degraded" for now — full connectivity check will be
-        // implemented when MassTransit consumers are deployed.
-        // In production, this would check IBusControl.CheckHealth() or similar.
+        // Check RabbitMQ connectivity via MassTransit IBusControl
+        var busControl = serviceProvider.GetService<IBusControl>();
+        if (busControl is not null)
+        {
+            try
+            {
+                var healthResult = busControl.CheckHealth();
+                rabbitmqStatus = healthResult.Status switch
+                {
+                    BusHealthStatus.Healthy => "healthy",
+                    BusHealthStatus.Degraded => "degraded",
+                    _ => "unhealthy"
+                };
+            }
+            catch
+            {
+                rabbitmqStatus = "degraded";
+            }
+        }
 
-        var overallStatus = postgresStatus == "healthy" ? "healthy" : "degraded";
+        // Overall: healthy only if postgres is healthy AND rabbitmq is healthy or not_configured
+        var overallStatus = postgresStatus == "healthy"
+            && rabbitmqStatus is "healthy" or "not_configured"
+                ? "healthy"
+                : "degraded";
 
         var response = new
         {
